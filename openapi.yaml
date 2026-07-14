@@ -1,0 +1,879 @@
+openapi: 3.0.3
+info:
+  title: Chatbot AI Vision API
+  description: |
+    API for AI-powered chatbot with image analysis capabilities using Google Gemini.
+    
+    ## Features
+    - Real-time chat with AI using streaming responses
+    - Image upload and analysis
+    - Multi-turn conversations with context
+    - Advanced AI configuration options
+    
+    ## Base URLs
+    - **Production**: `https://chat.fsu.my.id/api`
+    - **Development**: `http://localhost:3000/api`
+    
+    ## Rate Limiting
+    All endpoints are rate-limited per IP address:
+    - Chat: 20 requests/minute
+    - Image Upload: 10 requests/minute
+    - Image Analysis: 15 requests/minute
+    
+  version: 1.0.0
+  contact:
+    name: API Support
+    url: https://github.com/firdausmntp/chat-bot-nextjs
+    email: support@fsu.my.id
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://chat.fsu.my.id/api
+    description: Production server
+  - url: http://localhost:3000/api
+    description: Development server
+
+tags:
+  - name: Chat
+    description: Chat operations with AI
+  - name: Image
+    description: Image upload and analysis operations
+  - name: Gemini
+    description: Direct Gemini AI integration
+  - name: Maintenance
+    description: System maintenance operations
+
+paths:
+  /chat:
+    post:
+      tags:
+        - Chat
+      summary: Send chat message
+      description: |
+        Send a message to the AI chatbot and receive a streaming response using Server-Sent Events (SSE).
+        Supports multi-turn conversations with context and optional image analysis.
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            examples:
+              simpleChat:
+                summary: Simple text chat
+                value:
+                  messages:
+                    - role: user
+                      content: "What is artificial intelligence?"
+                  model: "gemini-3-flash"
+                  temperature: 0.7
+              chatWithImage:
+                summary: Chat with image context
+                value:
+                  messages:
+                    - role: user
+                      content: "What's in this image?"
+                  model: "gemini-2.5-flash"
+                  imageUrl: "/temp/abc123_1234567890.jpg"
+                  temperature: 0.8
+              multiTurnChat:
+                summary: Multi-turn conversation
+                value:
+                  messages:
+                    - role: user
+                      content: "Tell me about quantum computing"
+                    - role: assistant
+                      content: "Quantum computing is a revolutionary..."
+                    - role: user
+                      content: "Can you explain more about qubits?"
+                  model: "gemini-2.5-flash-lite"
+      responses:
+        '200':
+          description: Successful response with streaming data
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Request limit per window
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Remaining requests in current window
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+              description: Unix timestamp when the rate limit resets
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                format: binary
+              examples:
+                streamingResponse:
+                  summary: SSE streaming response
+                  value: |
+                    data: {"type":"start"}
+                    
+                    data: {"type":"content","text":"Hello!"}
+                    
+                    data: {"type":"content","text":" How"}
+                    
+                    data: {"type":"content","text":" can"}
+                    
+                    data: {"type":"content","text":" I"}
+                    
+                    data: {"type":"content","text":" help"}
+                    
+                    data: {"type":"content","text":" you?"}
+                    
+                    data: {"type":"end"}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /upload-image:
+    post:
+      tags:
+        - Image
+      summary: Upload image file
+      description: |
+        Upload an image file for analysis. The image will be stored temporarily and can be referenced in other API calls.
+        Files are automatically cleaned up after 24 hours.
+      operationId: uploadImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file to upload
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/webp, image/gif
+      responses:
+        '200':
+          description: Image uploaded successfully
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadImageResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    url: "/temp/abc123_1234567890.jpg"
+                    filename: "abc123_1234567890.jpg"
+                    size: 1048576
+                    mimeType: "image/jpeg"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "File too large"
+                message: "Image size must be less than 5MB"
+                code: "FILE_TOO_LARGE"
+                statusCode: 413
+        '415':
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Invalid file type"
+                message: "Only JPG, PNG, WebP, and GIF images are allowed"
+                code: "INVALID_FILE_TYPE"
+                statusCode: 415
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /image-analysis:
+    post:
+      tags:
+        - Image
+      summary: Analyze image with AI
+      description: |
+        Analyze an uploaded image using AI vision models.
+        Provides detailed description, object detection, color analysis, and mood assessment.
+        Supports multiple AI providers including Resita and NekoLabs.
+      operationId: analyzeImage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageAnalysisRequest'
+            examples:
+              basicAnalysis:
+                summary: Basic image analysis
+                value:
+                  imageUrl: "/temp/abc123_1234567890.jpg"
+              customPrompt:
+                summary: Analysis with custom prompt
+                value:
+                  imageUrl: "/temp/abc123_1234567890.jpg"
+                  prompt: "What objects are visible in this image?"
+                  language: "en"
+      responses:
+        '200':
+          description: Image analyzed successfully
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageAnalysisResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    analysis:
+                      description: "The image shows a beautiful sunset over the ocean with vibrant orange and pink colors in the sky"
+                      objects:
+                        - "sky"
+                        - "ocean"
+                        - "clouds"
+                        - "horizon"
+                      colors:
+                        - "orange"
+                        - "pink"
+                        - "blue"
+                        - "purple"
+                      mood: "serene and peaceful"
+                      confidence: 0.95
+                    model: "gemini-2.5-flash"
+                    processingTime: 2.3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Image not found"
+                message: "The specified image URL does not exist"
+                code: "IMAGE_NOT_FOUND"
+                statusCode: 404
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /gemini-analysis:
+    post:
+      tags:
+        - Gemini
+      summary: Advanced AI analysis
+      description: |
+        Perform advanced AI analysis with full control over generation parameters.
+        Supports multiple AI models from Resita and NekoLabs providers.
+        Both text-only and vision models are supported.
+      operationId: geminiAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeminiAnalysisRequest'
+            examples:
+              textAnalysis:
+                summary: Text analysis
+                value:
+                  prompt: "Explain quantum computing in simple terms"
+                  model: "gemini-3-flash"
+                  generationConfig:
+                    temperature: 0.7
+                    maxOutputTokens: 1024
+              visionAnalysis:
+                summary: Vision analysis
+                value:
+                  prompt: "Describe this image in detail"
+                  imageUrl: "https://example.com/image.jpg"
+                  model: "gemini-2.5-flash"
+                  generationConfig:
+                    temperature: 0.9
+                    topK: 40
+                    topP: 0.95
+                    maxOutputTokens: 2048
+      responses:
+        '200':
+          description: Analysis completed successfully
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeminiAnalysisResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    response: "Quantum computing is a revolutionary approach to computation that leverages the principles of quantum mechanics..."
+                    model: "gemini-3-flash"
+                    safetyRatings:
+                      - category: "HARM_CATEGORY_HARASSMENT"
+                        probability: "NEGLIGIBLE"
+                      - category: "HARM_CATEGORY_HATE_SPEECH"
+                        probability: "NEGLIGIBLE"
+                    citationMetadata:
+                      citations: []
+                    finishReason: "STOP"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Unauthorized"
+                message: "Invalid or missing API key"
+                code: "INVALID_API_KEY"
+                statusCode: 401
+        '429':
+          description: Rate limit or quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Quota exceeded"
+                message: "Daily quota limit reached. Please try again tomorrow."
+                code: "QUOTA_EXCEEDED"
+                statusCode: 429
+                retryAfter: 86400
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /cleanup-images:
+    post:
+      tags:
+        - Maintenance
+      summary: Cleanup old images
+      description: |
+        Remove temporary images older than the specified age.
+        Useful for maintenance and freeing up storage space.
+      operationId: cleanupImages
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CleanupRequest'
+            examples:
+              default:
+                summary: Default cleanup (24 hours)
+                value:
+                  maxAge: 86400
+                  dryRun: false
+              dryRun:
+                summary: Preview without deleting
+                value:
+                  maxAge: 86400
+                  dryRun: true
+      responses:
+        '200':
+          description: Cleanup completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CleanupResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    deleted: 15
+                    freed: 45678900
+                    freedMB: 43.56
+                    files:
+                      - "abc123_1234567890.jpg"
+                      - "def456_1234567891.png"
+                      - "ghi789_1234567892.webp"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  schemas:
+    ChatRequest:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          description: Array of conversation messages
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Message'
+        model:
+          type: string
+          description: AI model to use
+          default: "gemini-3-flash"
+          enum:
+            - gemini-3-flash
+            - gemini-2.5-flash
+            - gemini-2.5-flash-lite
+        temperature:
+          type: number
+          description: Controls randomness in generation (0.0 = deterministic, 1.0 = very random)
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.7
+        maxTokens:
+          type: integer
+          description: Maximum number of tokens to generate
+          minimum: 1
+          maximum: 2048
+          default: 1024
+        imageUrl:
+          type: string
+          description: Optional image URL for vision models
+          nullable: true
+
+    Message:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          description: Role of the message sender
+          enum:
+            - user
+            - assistant
+            - system
+        content:
+          type: string
+          description: Message content
+          minLength: 1
+        timestamp:
+          type: integer
+          description: Unix timestamp of the message
+          nullable: true
+
+    StreamEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - start
+            - content
+            - end
+            - error
+        text:
+          type: string
+          description: Text content (only for 'content' type)
+        message:
+          type: string
+          description: Error message (only for 'error' type)
+
+    UploadImageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        url:
+          type: string
+          description: URL path to the uploaded image
+        filename:
+          type: string
+          description: Generated filename
+        size:
+          type: integer
+          description: File size in bytes
+        mimeType:
+          type: string
+          description: MIME type of the uploaded image
+
+    ImageAnalysisRequest:
+      type: object
+      required:
+        - imageUrl
+      properties:
+        imageUrl:
+          type: string
+          description: URL or path to the image to analyze
+        prompt:
+          type: string
+          description: Custom analysis prompt
+          default: "Describe this image in detail"
+        language:
+          type: string
+          description: Response language code
+          default: "en"
+          enum:
+            - en
+            - id
+            - es
+            - fr
+            - de
+            - ja
+            - zh
+
+    ImageAnalysisResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        analysis:
+          type: object
+          properties:
+            description:
+              type: string
+              description: Detailed description of the image
+            objects:
+              type: array
+              items:
+                type: string
+              description: List of detected objects
+            colors:
+              type: array
+              items:
+                type: string
+              description: Dominant colors in the image
+            mood:
+              type: string
+              description: Overall mood or atmosphere
+            confidence:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: Confidence score of the analysis
+        model:
+          type: string
+          description: Model used for analysis
+        processingTime:
+          type: number
+          description: Processing time in seconds
+
+    GeminiAnalysisRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          description: Text prompt for analysis
+          minLength: 1
+        imageUrl:
+          type: string
+          description: Optional image URL for vision analysis
+          nullable: true
+        model:
+          type: string
+          description: AI model to use
+          default: "gemini-3-flash"
+          enum:
+            - gemini-3-flash
+            - gemini-2.5-flash
+            - gemini-2.5-flash-lite
+        generationConfig:
+          $ref: '#/components/schemas/GenerationConfig'
+        safetySettings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SafetySetting'
+
+    GenerationConfig:
+      type: object
+      properties:
+        temperature:
+          type: number
+          description: Creativity level
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.7
+        topK:
+          type: integer
+          description: Token sampling parameter
+          minimum: 1
+          maximum: 100
+          default: 40
+        topP:
+          type: number
+          description: Nucleus sampling parameter
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.95
+        maxOutputTokens:
+          type: integer
+          description: Maximum response length
+          minimum: 1
+          maximum: 2048
+          default: 1024
+
+    SafetySetting:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - HARM_CATEGORY_HARASSMENT
+            - HARM_CATEGORY_HATE_SPEECH
+            - HARM_CATEGORY_SEXUALLY_EXPLICIT
+            - HARM_CATEGORY_DANGEROUS_CONTENT
+        threshold:
+          type: string
+          enum:
+            - BLOCK_NONE
+            - BLOCK_LOW_AND_ABOVE
+            - BLOCK_MEDIUM_AND_ABOVE
+            - BLOCK_ONLY_HIGH
+
+    GeminiAnalysisResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        response:
+          type: string
+          description: AI generated response
+        model:
+          type: string
+          description: Model used
+        safetyRatings:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              probability:
+                type: string
+        citationMetadata:
+          type: object
+          properties:
+            citations:
+              type: array
+              items:
+                type: object
+        finishReason:
+          type: string
+          enum:
+            - STOP
+            - MAX_TOKENS
+            - SAFETY
+            - RECITATION
+            - OTHER
+
+    CleanupRequest:
+      type: object
+      properties:
+        maxAge:
+          type: integer
+          description: Maximum age in seconds for files to keep
+          default: 86400
+          minimum: 0
+        dryRun:
+          type: boolean
+          description: Preview without actually deleting files
+          default: false
+
+    CleanupResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        deleted:
+          type: integer
+          description: Number of files deleted
+        freed:
+          type: integer
+          description: Bytes freed
+        freedMB:
+          type: number
+          description: Megabytes freed
+        files:
+          type: array
+          items:
+            type: string
+          description: List of deleted filenames
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - code
+        - statusCode
+      properties:
+        error:
+          type: string
+          description: Error title
+        message:
+          type: string
+          description: Detailed error message
+        code:
+          type: string
+          description: Machine-readable error code
+          enum:
+            - INVALID_REQUEST
+            - FILE_TOO_LARGE
+            - INVALID_FILE_TYPE
+            - IMAGE_NOT_FOUND
+            - RATE_LIMIT_EXCEEDED
+            - QUOTA_EXCEEDED
+            - INTERNAL_ERROR
+            - SERVICE_UNAVAILABLE
+            - INVALID_API_KEY
+        statusCode:
+          type: integer
+          description: HTTP status code
+        timestamp:
+          type: string
+          format: date-time
+          description: Error timestamp
+        path:
+          type: string
+          description: API path that caused the error
+        requestId:
+          type: string
+          description: Unique request identifier for tracking
+        retryAfter:
+          type: integer
+          description: Seconds to wait before retrying (for rate limit errors)
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidRequest:
+              value:
+                error: "Invalid request"
+                message: "Messages array is required"
+                code: "INVALID_REQUEST"
+                statusCode: 400
+                timestamp: "2025-10-13T10:30:00.000Z"
+                path: "/api/chat"
+
+    RateLimitExceeded:
+      description: Too Many Requests - Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            rateLimitExceeded:
+              value:
+                error: "Rate limit exceeded"
+                message: "Too many requests. Please try again in 45 seconds."
+                code: "RATE_LIMIT_EXCEEDED"
+                statusCode: 429
+                retryAfter: 45
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internalError:
+              value:
+                error: "Internal server error"
+                message: "An unexpected error occurred"
+                code: "INTERNAL_ERROR"
+                statusCode: 500
+
+    ServiceUnavailable:
+      description: Service Unavailable - External service is down
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            serviceUnavailable:
+              value:
+                error: "Service unavailable"
+                message: "AI service is temporarily unavailable"
+                code: "SERVICE_UNAVAILABLE"
+                statusCode: 503
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT Bearer token authentication (coming soon).
+        Include the token in the Authorization header: `Authorization: Bearer YOUR_TOKEN`
+
+security: []
+
+externalDocs:
+  description: Full API Documentation
+  url: https://github.com/firdausmntp/chat-bot-nextjs/blob/main/API_DOCUMENTATION.md

@@ -1,0 +1,47 @@
+# Deftorch — local Supabase config
+#
+# This file did not exist before — `supabase/` only had `migrations/`,
+# which means `supabase start` had nothing to bootstrap a local project
+# from. This is a minimal, standard config, NOT verified by actually
+# running `supabase start` (this sandbox has no Docker — see
+# test/integration/README.md). If `supabase start` errors on this file,
+# the fastest fix is almost certainly `supabase init` with a real CLI
+# install to regenerate it fresh for whatever CLI version you have, then
+# copy the `[db]`/`[api]`/`[auth]` sections' values back in from here
+# rather than debugging this file blind — CLI config schema does drift
+# between versions.
+
+project_id = "deftorch"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = false
+enable_confirmations = false # local/test only — real project must keep confirmations on
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
